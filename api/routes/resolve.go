@@ -8,7 +8,7 @@ import (
 
 func ResolveURL(c *fiber.Ctx) error {
 	url := c.Params("url")
-	r := database.CreateClient(0)
+	r := database.CreateClient(2)
 	defer r.Close()
 
 	val, err := r.HGet(database.Ctx, "public", url).Result()

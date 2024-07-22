@@ -26,6 +26,6 @@ func main() {
 	app := fiber.New()
 	app.Use(logger.New())
 	setupRoutes(app)
-	database.Initialize(2)
+	database.Initialize(0)
 	log.Fatal(app.Listen(os.Getenv("APP_PORT")))
 }

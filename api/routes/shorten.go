@@ -29,6 +29,11 @@ type response struct {
 	XRateLimitReset time.Duration `json:"X-Rate-Limit-Reset"`
 }
 
+/***
+** @Description : ShortenURL is a function to shorten the req URL
+** r := database.CreateClient(1) Rate limiting
+** r2 := database.CreateClient(2) Shortened URL storage
+***/
 func ShortenURL(c *fiber.Ctx) error {
 	req := new(request)
 	if err := c.BodyParser(&req); err != nil {
@@ -41,16 +46,16 @@ func ShortenURL(c *fiber.Ctx) error {
 	duration, _ := time.ParseDuration(os.Getenv("API_QUOTA_DURATION") + "h")
 
 	//Rate Limiting
-	r2 := database.CreateClient(1)
-	defer r2.Close()
+	r := database.CreateClient(1)
+	defer r.Close()
 
-	val, err := r2.Get(database.Ctx, c.IP()).Result()
+	val, err := r.Get(database.Ctx, c.IP()).Result()
 	if err == redis.Nil {
-		_ = r2.Set(database.Ctx, c.IP(), os.Getenv("API_QUOTA"), duration).Err()
+		_ = r.Set(database.Ctx, c.IP(), os.Getenv("API_QUOTA"), duration).Err()
 	} else {
 		valInt, _ := strconv.Atoi(val)
 		if valInt <= 0 {
-			limit, _ := r2.TTL(database.Ctx, c.IP()).Result()
+			limit, _ := r.TTL(database.Ctx, c.IP()).Result()
 			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 				"error":                  "Rate limit exceeded",
 				"X-Rate-Limit-Remaining": limit / time.Nanosecond / time.Minute,
@@ -73,7 +78,6 @@ func ShortenURL(c *fiber.Ctx) error {
 
 	//If custom short is not provided, generate a random one
 	var id string
-
 	if req.CustomShort == "" {
 		id = uuid.New().String()[:6]
 	} else {
@@ -81,11 +85,11 @@ func ShortenURL(c *fiber.Ctx) error {
 	}
 
 	//Create database client for link storage
-	r := database.CreateClient(0)
-	defer r.Close()
+	r2 := database.CreateClient(2)
+	defer r2.Close()
 
-	val = r.HGet(database.Ctx, "private", id).Val()
-	val += r.HGet(database.Ctx, "public", id).Val()
+	val = r2.HGet(database.Ctx, "private", id).Val()
+	val += r2.HGet(database.Ctx, "public", id).Val()
 	if val != "" {
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "Custom short already exists"})
 	}
@@ -95,18 +99,19 @@ func ShortenURL(c *fiber.Ctx) error {
 		req.Expiry = 24
 	}
 	//Store the link in the database
-
 	//If the link is public, store it in the public hash
 	if req.Public {
 		//If the client is authorized, store the link in the public hash
 		if helpers.AuthorizePublicUser(req.SecretKey) {
-			err = r.HSet(database.Ctx, "public", id, req.URL).Err()
+			err = r2.HSet(database.Ctx, "public", id, req.URL).Err()
+			r2.HExpire(database.Ctx, "public", req.Expiry*time.Hour, id)
 		} else {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
 		}
+		// Else store the link in the private hash
 	} else {
-		err = r.HSet(database.Ctx, "private", id, req.URL).Err()
-		r.HExpire(database.Ctx, "private", req.Expiry*time.Hour, id)
+		err = r2.HSet(database.Ctx, "private", id, req.URL).Err()
+		r2.HExpire(database.Ctx, "private", req.Expiry*time.Hour, id)
 	}
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Unable to connect to server"})
@@ -120,12 +125,12 @@ func ShortenURL(c *fiber.Ctx) error {
 		XRateLimitReset: duration,
 	}
 	//Decrement the rate limit
-	r2.Decr(database.Ctx, c.IP())
+	r.Decr(database.Ctx, c.IP())
 	//Set the response headers
-	val, _ = r2.Get(database.Ctx, c.IP()).Result()
+	val, _ = r.Get(database.Ctx, c.IP()).Result()
 	resp.XRateRemaining, _ = strconv.Atoi(val)
 
-	ttl, _ := r2.TTL(database.Ctx, c.IP()).Result()
+	ttl, _ := r.TTL(database.Ctx, c.IP()).Result()
 	resp.XRateLimitReset = ttl / time.Nanosecond / time.Minute
 
 	resp.CustomShort = os.Getenv("DOMAIN") + "/" + id

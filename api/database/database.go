@@ -9,6 +9,10 @@ import (
 
 var Ctx = context.Background()
 
+// CreateClient creates a new Redis client with the specified database number
+// Database 0: Public user authorization
+// Database 1: Rate limiting
+// Database 2: Shortened URL storage
 func CreateClient(dbNo int) *redis.Client {
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     os.Getenv("DB_ADDR"),
