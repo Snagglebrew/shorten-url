@@ -24,8 +24,11 @@ func RemoveDomainError(url string) bool {
 
 // AuthorizePublicUser checks if the secret key is in the public user set
 // r := database.CreateClient(0) Public user authorization
-func AuthorizePublicUser(secretKey string) bool {
+func AuthorizePublicUser(username string, secretKey string) bool {
 	r := database.CreateClient(0)
 	defer r.Close()
-	return r.SIsMember(database.Ctx, "users:public", secretKey).Val()
+	if r.SIsMember(database.Ctx, "users:public", username).Val() {
+		return r.HGet(database.Ctx, username, "Secret").Val() == secretKey
+	}
+	return false
 }

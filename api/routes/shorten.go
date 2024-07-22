@@ -13,15 +13,16 @@ import (
 	"github.com/snagglebrew/shorten-url/helpers"
 )
 
-type request struct {
+type URLReq struct {
 	URL         string        `json:"url"`
 	CustomShort string        `json:"short"`
 	Expiry      time.Duration `json:"expiry"`
 	Public      bool          `json:"public"`
+	Username    string        `json:"username"`
 	SecretKey   string        `json:"secret"`
 }
 
-type response struct {
+type UrlRes struct {
 	URL             string        `json:"url"`
 	CustomShort     string        `json:"short"`
 	Expiry          time.Duration `json:"expiry"`
@@ -35,7 +36,7 @@ type response struct {
 ** r2 := database.CreateClient(2) Shortened URL storage
 ***/
 func ShortenURL(c *fiber.Ctx) error {
-	req := new(request)
+	req := new(URLReq)
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Cannot parse JSON",
@@ -102,7 +103,7 @@ func ShortenURL(c *fiber.Ctx) error {
 	//If the link is public, store it in the public hash
 	if req.Public {
 		//If the client is authorized, store the link in the public hash
-		if helpers.AuthorizePublicUser(req.SecretKey) {
+		if helpers.AuthorizePublicUser(req.Username, req.SecretKey) {
 			err = r2.HSet(database.Ctx, "public", id, req.URL).Err()
 			r2.HExpire(database.Ctx, "public", req.Expiry*time.Hour, id)
 		} else {
@@ -117,7 +118,7 @@ func ShortenURL(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Unable to connect to server"})
 	}
 	//Create response object
-	resp := response{
+	resp := UrlRes{
 		URL:             req.URL,
 		CustomShort:     "",
 		Expiry:          req.Expiry,
