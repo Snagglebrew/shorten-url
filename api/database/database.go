@@ -17,3 +17,13 @@ func CreateClient(dbNo int) *redis.Client {
 	})
 	return rdb
 }
+
+func Initialize(dbNo int) {
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     os.Getenv("DB_ADDR"),
+		Password: os.Getenv("DB_PASS"),
+		DB:       dbNo,
+	})
+	// Test authenticate
+	rdb.SAdd(Ctx, "users:public", "IJUWO4DVOBYHSZDPM4======")
+}

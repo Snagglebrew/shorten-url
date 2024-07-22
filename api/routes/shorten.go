@@ -17,6 +17,8 @@ type request struct {
 	URL         string        `json:"url"`
 	CustomShort string        `json:"short"`
 	Expiry      time.Duration `json:"expiry"`
+	Public      bool          `json:"public"`
+	SecretKey   string        `json:"secret"`
 }
 
 type response struct {
@@ -82,7 +84,8 @@ func ShortenURL(c *fiber.Ctx) error {
 	r := database.CreateClient(0)
 	defer r.Close()
 
-	val, _ = r.Get(database.Ctx, id).Result()
+	val = r.HGet(database.Ctx, "private", id).Val()
+	val += r.HGet(database.Ctx, "public", id).Val()
 	if val != "" {
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "Custom short already exists"})
 	}
@@ -92,7 +95,19 @@ func ShortenURL(c *fiber.Ctx) error {
 		req.Expiry = 24
 	}
 	//Store the link in the database
-	err = r.Set(database.Ctx, id, req.URL, req.Expiry*time.Hour).Err()
+
+	//If the link is public, store it in the public hash
+	if req.Public {
+		//If the client is authorized, store the link in the public hash
+		if helpers.AuthorizePublicUser(req.SecretKey) {
+			err = r.HSet(database.Ctx, "public", id, req.URL).Err()
+		} else {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+		}
+	} else {
+		err = r.HSet(database.Ctx, "private", id, req.URL).Err()
+		r.HExpire(database.Ctx, "private", req.Expiry*time.Hour, id)
+	}
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Unable to connect to server"})
 	}
